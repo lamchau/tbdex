@@ -1,7 +1,11 @@
 name: lint json files with `jq`
 on:
+  push:
+    branches:
+      - "*"
   workflow_run:
-    workflows: ["run-linter"]
+    workflows:
+      - run-linter
     types:
       - completed
 
@@ -32,14 +36,29 @@ jobs:
           fi
 
       - name: add a comment to the pull request
-        if: env.lint_failed == 'true'
+        if: >
+          env.lint_failed == 'true' &&
+          (
+            github.event_name == 'pull_request' ||
+            github.event_name == 'workflow_run'
+          )
         uses: actions/github-script@v4
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            github.issues.createComment({
-              issue_number: context.issue.number,
+            const get_pull_request = async () => {
+              if (github.event_name === "pull_request") {
+                return context.payload.pull_request.number;
+              }
+              return context.payload.workflow_run.pull_requests[0].number;
+            };
+            const pull_request = await get_pull_request();
+            if (!pull_request) {
+              throw new Error("No pull request found.");
+            }
+            await github.issues.createComment({
+              issue_number: pull_request,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "[error] linting failed. please fix the errors and push again."
-            })
+              body: "[error] linting failed. please fix the errors and push again.",
+            });
